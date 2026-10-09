@@ -16,7 +16,7 @@ describe("Conversão de fuso horário (UTC → local, UTC-3)", () => {
   const today = new Date("2026-10-08T15:00:00-03:00");
 
   it("sessão às 22:30 locais de terça (01:30 UTC de quarta) cai na TERÇA", () => {
-    const r = aggregate([s("1", "2026-10-07T01:30:00Z", 3600)], today);
+    const r = aggregate([s("1", "2026-10-07T01:30:00Z", 3600)], 0, today);
     expect(r.chart[2]).toEqual({ day: "Ter", min: 60 });
     expect(r.chart[3].min).toBe(0); // quarta (dia UTC) não recebe
   });
@@ -24,6 +24,7 @@ describe("Conversão de fuso horário (UTC → local, UTC-3)", () => {
   it("'Hoje' usa o dia local e destaca o índice de quinta (4)", () => {
     const r = aggregate(
       [s("1", "2026-10-08T12:00:00-03:00", 1800), s("2", "2026-10-08T01:00:00Z", 600)], // 2ª = 22h de quarta local (07/10)
+      0,
       today
     );
     expect(r.todayIdx).toBe(4);
@@ -32,7 +33,7 @@ describe("Conversão de fuso horário (UTC → local, UTC-3)", () => {
   });
 
   it("ignora sessões fora da semana atual", () => {
-    const r = aggregate([s("1", "2026-10-03T15:00:00Z", 3600), s("2", "2026-10-11T15:00:00Z", 3600)], today);
+    const r = aggregate([s("1", "2026-10-03T15:00:00Z", 3600), s("2", "2026-10-11T15:00:00Z", 3600)], 0, today);
     expect(r.chart.every((d) => d.min === 0)).toBe(true);
     expect(r.subjects).toEqual([]);
   });
@@ -44,6 +45,7 @@ describe("Conversão de fuso horário (UTC → local, UTC-3)", () => {
         s("2", "2026-10-06T15:00:00Z", 1800, "HTML"),
         s("3", "2026-10-06T16:00:00Z", 7200, "CSS"),
       ],
+      0,
       today
     );
     expect(r.subjects).toEqual([
@@ -53,7 +55,7 @@ describe("Conversão de fuso horário (UTC → local, UTC-3)", () => {
   });
 
   it("domingo local é o início da semana (índice 0)", () => {
-    const r = aggregate([s("1", "2026-10-04T12:00:00-03:00", 600)], today);
+    const r = aggregate([s("1", "2026-10-04T12:00:00-03:00", 600)], 0, today);
     expect(r.chart[0]).toEqual({ day: "Dom", min: 10 });
   });
 });
