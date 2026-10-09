@@ -71,7 +71,7 @@ export default function CalendarPanel() {
 
   const entriesMap = (() => {
     const map = new Map<string, typeof calendarEntries>();
-    calendarEntries.forEach(entry => {
+    calendarEntries.filter(e => !e.deleted_at).forEach(entry => {
       const list = map.get(entry.date) || [];
       list.push(entry);
       map.set(entry.date, list);
