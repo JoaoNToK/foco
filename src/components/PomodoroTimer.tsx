@@ -125,16 +125,16 @@ export default function PomodoroTimer() {
 
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-12 bg-bg p-6">
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-bg p-6 landscape:flex-row landscape:gap-16">
         <button
           onClick={toggleFullscreen}
-          className="absolute right-6 top-6 rounded-lg p-2 text-muted transition hover:bg-surface2 hover:text-fg"
+          className="absolute right-6 top-6 z-[101] rounded-lg p-2 text-muted transition hover:bg-surface2 hover:text-fg"
           aria-label="Sair da tela cheia"
         >
           <Minimize size={24} />
         </button>
 
-        <div className="relative mx-auto flex aspect-square w-[min(90vw,500px)] items-center justify-center [container-type:inline-size]">
+        <div className="relative mx-auto flex aspect-square w-[min(90vw,90vh,450px)] items-center justify-center [container-type:inline-size]">
           <svg viewBox="0 0 340 340" className="absolute inset-0 h-full w-full -rotate-90">
             <circle cx="170" cy="170" r={R} fill="none" stroke="var(--line)" strokeWidth="3" />
             <circle
@@ -164,7 +164,7 @@ export default function PomodoroTimer() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col items-center gap-4 landscape:flex-col sm:flex-row">
           {status === "running" ? (
             <button
               onClick={() => store().pause()}
