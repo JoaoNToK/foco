@@ -368,10 +368,13 @@ export const useStore = create<State>()(
               { id: uid(), title: title.trim(), type, date, synced: false },
             ],
           }));
-          // void get().flushPending(); // Uncomment when table exists
+          void get().flushPending();
         },
         deleteCalendarEntry: (id) => {
-          set((s) => ({ calendarEntries: s.calendarEntries.filter((e) => e.id !== id) }));
+          set((s) => ({
+            calendarEntries: s.calendarEntries.map((e) => (e.id === id ? { ...e, deleted_at: new Date().toISOString(), synced: false } : e)),
+          }));
+          void get().flushPending();
         },
         addCalendarTag: (label, color) => {
           if (!label.trim()) return;
@@ -478,6 +481,15 @@ export const useStore = create<State>()(
               const ids = new Set(ts.map((x) => x.id));
               set((st) => ({ tasks: st.tasks.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
             }
+            const ce = s.calendarEntries.filter((x) => x.synced === false);
+            if (ce.length) {
+              const { error } = await supabase
+                .from("calendar_entries")
+                .upsert(ce.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
+              if (error) throw error;
+              const ids = new Set(ce.map((x) => x.id));
+              set((st) => ({ calendarEntries: st.calendarEntries.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
+            }
             if (s.settingsSynced === false) {
               const { error } = await supabase
                 .from("user_settings")
@@ -494,11 +506,12 @@ export const useStore = create<State>()(
           if (!supabase || !userId) return;
           try {
             await get().flushPending();
-            const [a, b, c, d] = await Promise.all([
+            const [a, b, c, d, e] = await Promise.all([
               supabase.from("study_sessions").select("id,subject,started_at,duration_sec,deleted_at"),
               supabase.from("notes").select("id,subject,content,created_at,deleted_at"),
               supabase.from("tasks").select("id,title,subject,done,created_at,deleted_at"),
               supabase.from("user_settings").select("settings,subjects").eq("user_id", userId).single(),
+              supabase.from("calendar_entries").select("id,title,type,date,deleted_at"),
             ]);
             set((s) => {
               const merge = <T extends { id: string; synced?: boolean }>(local: T[], remote: T[] | null) => {
@@ -516,6 +529,7 @@ export const useStore = create<State>()(
                 tasks: merge(s.tasks, c.data as Task[] | null).sort((x, y) => y.created_at.localeCompare(x.created_at)),
                 settings: newSettings,
                 subjects: newSubjects,
+                calendarEntries: merge(s.calendarEntries, e.data as CalendarEntry[] | null),
                 plannedMs: s.status === "idle" ? phaseMs(newSettings, s.phase) : s.plannedMs,
               };
             });
