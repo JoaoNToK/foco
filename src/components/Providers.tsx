@@ -20,11 +20,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     const { setAuth, loadRemote, refreshCalendar } = useStore.getState();
     supabase.auth.getSession().then(({ data }) => {
       const s = data.session;
-      setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token);
+      setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token, s?.provider_refresh_token);
       if (s) void loadRemote().then(refreshCalendar);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      useStore.getState().setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token);
+      useStore.getState().setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token, s?.provider_refresh_token);
       if (s) void useStore.getState().loadRemote().then(() => useStore.getState().refreshCalendar());
     });
     return () => sub.subscription.unsubscribe();

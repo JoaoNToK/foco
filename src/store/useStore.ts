@@ -72,6 +72,8 @@ interface State {
   calendarEvents: CalendarEvent[];
   calendarEntries: CalendarEntry[];
   calendarTags: CalendarTag[];
+  providerRefreshToken: string | null;
+  settingsSynced: boolean;
 
   setTab: (t: TabId) => void;
   setMode: (m: TimerMode) => void;
@@ -97,7 +99,7 @@ interface State {
   deleteCalendarEntry: (id: string) => void;
   addCalendarTag: (label: string, color: string) => void;
 
-  setAuth: (userId: string | null, email: string | null, token?: string | null) => void;
+  setAuth: (userId: string | null, email: string | null, token?: string | null, refreshToken?: string | null) => void;
   refreshCalendar: () => Promise<void>;
   flushPending: () => Promise<void>;
   loadRemote: () => Promise<void>;
@@ -163,6 +165,8 @@ export const useStore = create<State>()(
           { id: "assignment", label: "Trabalho", color: "purple" },
           { id: "deadline", label: "Prazo", color: "red" },
         ],
+        providerRefreshToken: null,
+        settingsSynced: true,
 
         setTab: (tab) => set({ tab }),
 
@@ -290,7 +294,9 @@ export const useStore = create<State>()(
             subjects: s.subjects.includes(n) ? s.subjects : [...s.subjects, n],
             subject: n,
             subjectManual: true,
+            settingsSynced: false,
           }));
+          void get().flushPending();
         },
         deleteSubject: (name) => {
           set((s) => {
@@ -298,8 +304,10 @@ export const useStore = create<State>()(
             return {
               subjects: newSubjects,
               subject: s.subject === name ? "Geral" : s.subject,
+              settingsSynced: false,
             };
           });
+          void get().flushPending();
         },
 
         updateSettings: (p) => {
@@ -308,8 +316,10 @@ export const useStore = create<State>()(
             return {
               settings,
               plannedMs: s.status === "idle" ? phaseMs(settings, s.phase) : s.plannedMs,
+              settingsSynced: false,
             };
           });
+          void get().flushPending();
         },
 
         addNote: (content, subject) => {
@@ -373,11 +383,12 @@ export const useStore = create<State>()(
           }));
         },
 
-        setAuth: (userId, userEmail, token) =>
+        setAuth: (userId, userEmail, token, refreshToken) =>
           set((s) => ({
             userId,
             userEmail,
             providerToken: userId ? (token ?? s.providerToken) : null,
+            providerRefreshToken: userId ? (refreshToken ?? s.providerRefreshToken) : null,
             calendarEvents: userId ? s.calendarEvents : [],
           })),
 
@@ -386,7 +397,7 @@ export const useStore = create<State>()(
          * e o timer continua em modo manual.
          */
         refreshCalendar: async () => {
-          const { providerToken } = get();
+          const { providerToken, providerRefreshToken } = get();
           if (!providerToken) return;
           try {
             const events = await fetchTodayEvents(providerToken);
@@ -396,12 +407,34 @@ export const useStore = create<State>()(
               set((s) => ({
                 subject: cur.summary,
                 subjects: s.subjects.includes(cur.summary) ? s.subjects : [...s.subjects, cur.summary],
+                settingsSynced: s.subjects.includes(cur.summary) ? s.settingsSynced : false,
               }));
+              void get().flushPending();
             }
           } catch (e) {
             if (e instanceof CalendarAuthError) {
-              set({ providerToken: null, calendarEvents: [] });
-              toast.warning("Acesso ao Google Calendar expirou. Reconecte nas configurações.", { id: "cal" });
+              if (providerRefreshToken) {
+                // Tenta renovar o token automaticamente
+                try {
+                  const res = await fetch("/api/refresh-token", {
+                    method: "POST",
+                    body: JSON.stringify({ refresh_token: providerRefreshToken }),
+                  });
+                  if (!res.ok) throw new Error("Falha ao renovar token");
+                  const { access_token } = await res.json();
+                  set({ providerToken: access_token });
+                  // Refaz a busca
+                  const events = await fetchTodayEvents(access_token);
+                  set({ calendarEvents: events });
+                  return;
+                } catch {
+                  set({ providerToken: null, calendarEvents: [] });
+                  toast.warning("Sessão do Google expirou. Reconecte nas configurações.", { id: "cal" });
+                }
+              } else {
+                set({ providerToken: null, calendarEvents: [] });
+                toast.warning("Acesso ao Google Calendar expirou. Reconecte nas configurações.", { id: "cal" });
+              }
             } else {
               toast.warning("Google Calendar indisponível. Usando modo manual.", { id: "cal" });
             }
@@ -445,6 +478,12 @@ export const useStore = create<State>()(
               const ids = new Set(ts.map((x) => x.id));
               set((st) => ({ tasks: st.tasks.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
             }
+            if (s.settingsSynced === false) {
+              const { error } = await supabase
+                .from("user_settings")
+                .upsert({ user_id: userId, settings: s.settings, subjects: s.subjects });
+              if (!error) set({ settingsSynced: true });
+            }
           } catch {
             // Falhou (offline/servidor): permanece pendente e tentamos de novo depois.
           }
@@ -455,10 +494,11 @@ export const useStore = create<State>()(
           if (!supabase || !userId) return;
           try {
             await get().flushPending();
-            const [a, b, c] = await Promise.all([
+            const [a, b, c, d] = await Promise.all([
               supabase.from("study_sessions").select("id,subject,started_at,duration_sec,deleted_at"),
               supabase.from("notes").select("id,subject,content,created_at,deleted_at"),
               supabase.from("tasks").select("id,title,subject,done,created_at,deleted_at"),
+              supabase.from("user_settings").select("settings,subjects").eq("user_id", userId).single(),
             ]);
             set((s) => {
               const merge = <T extends { id: string; synced?: boolean }>(local: T[], remote: T[] | null) => {
@@ -466,10 +506,17 @@ export const useStore = create<State>()(
                 const pIds = new Set(pending.map((x) => x.id));
                 return [...(remote ?? []).filter((x) => !pIds.has(x.id)).map((x) => ({ ...x, synced: true })), ...pending];
               };
+              
+              const newSettings = d.data && s.settingsSynced ? (d.data.settings as Settings) : s.settings;
+              const newSubjects = d.data && s.settingsSynced ? (d.data.subjects as string[]) : s.subjects;
+              
               return {
                 sessions: merge(s.sessions as (Session & { synced?: boolean })[], a.data as Session[] | null) as Session[],
                 notes: merge(s.notes, b.data as Note[] | null).sort((x, y) => y.created_at.localeCompare(x.created_at)),
                 tasks: merge(s.tasks, c.data as Task[] | null).sort((x, y) => y.created_at.localeCompare(x.created_at)),
+                settings: newSettings,
+                subjects: newSubjects,
+                plannedMs: s.status === "idle" ? phaseMs(newSettings, s.phase) : s.plannedMs,
               };
             });
           } catch {

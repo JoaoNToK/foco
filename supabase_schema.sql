@@ -51,3 +51,16 @@ CREATE POLICY "Usuários podem inserir/atualizar suas anotações" ON notes FOR 
 -- Políticas para tasks
 CREATE POLICY "Usuários podem ver suas próprias tarefas" ON tasks FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Usuários podem inserir/atualizar suas tarefas" ON tasks FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ==============================================================================
+-- 4. Criação da tabela de Configurações (Settings)
+-- ==============================================================================
+CREATE TABLE user_settings (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  settings JSONB NOT NULL,
+  subjects JSONB NOT NULL
+);
+
+ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Usuários podem ver suas próprias configs" ON user_settings FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Usuários podem inserir/atualizar suas configs" ON user_settings FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
