@@ -136,7 +136,7 @@ export const useStore = create<State>()(
       /** Registra sessÃ£o: salva local (synced:false) e tenta enviar. */
       const recordSession = (startedAt: number, durationSec: number) => {
         if (durationSec < 60) return;
-        const { subject, userId, activeTaskId } = get();
+        const { subject, userId, activeTaskId, settings } = get();
         const session: Session = {
           id: uid(),
           subject: subject || "Geral",
