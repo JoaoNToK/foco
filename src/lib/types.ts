@@ -58,12 +58,33 @@ export interface Subtask {
   done: boolean;
 }
 
+export type Priority = "none" | "low" | "medium" | "high";
+export type Recurrence = "none" | "daily" | "weekly" | "monthly";
+export type PropType = "text" | "number" | "select" | "date";
+
+export interface PropDef {
+  id: string;
+  name: string;
+  type: PropType;
+  options?: string[]; // para type === "select"
+}
+
 export interface KanbanTaskExtras {
   status: "todo" | "in_progress" | "done";
   listId: string; // The list it belongs to
   subtasks: Subtask[];
   tags: string[];
   dueDate: string | null;
+  /** posição dentro da coluna (menor = mais acima) */
+  order?: number;
+  priority?: Priority;
+  description?: string;
+  recurrence?: Recurrence;
+  archived?: boolean;
+  /** segundos de foco (Timer) gastos nesta tarefa */
+  focusSec?: number;
+  /** valores das propriedades personalizadas (id da PropDef -> valor) */
+  props?: Record<string, string>;
 }
 
 export interface TaskList {
@@ -74,6 +95,10 @@ export interface TaskList {
 export interface KanbanData {
   lists: TaskList[];
   taskExtras: Record<string, KanbanTaskExtras>;
+  /** cor escolhida por tag (índice da paleta) */
+  tagColors?: Record<string, number>;
+  /** propriedades personalizadas por lista */
+  propDefs?: Record<string, PropDef[]>;
 }
 
 export interface Settings {

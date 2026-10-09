@@ -17,6 +17,12 @@ import type {
 } from "@/lib/types";
 import { playAlarm } from "@/lib/audio";
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_EXTRAS, EMPTY_KANBAN, nextOrder, placeInColumn, sortByOrder, toFull, getNextRecurrenceDate } from "@/lib/kanban";
+
+const EXTRA_KEYS = [
+  "status", "listId", "subtasks", "tags", "dueDate", "order", "priority",
+  "description", "recurrence", "archived", "focusSec", "props",
+] as const satisfies readonly (keyof KanbanTaskExtras)[];
 import {
   CalendarAuthError,
   createStudyEvent,
@@ -54,18 +60,19 @@ interface State {
   phase: Phase;
   status: Status;
   /**
-   * Anti-bug #1 (throttling): o tempo NUNCA é decrementado por tick.
+   * Anti-bug #1 (throttling): o tempo NUNCA Ã© decrementado por tick.
    * Guardamos o instante-alvo (timestamp) e derivamos o restante com Date.now().
    */
   targetEnd: number | null; // timer rodando
   remainingMs: number | null; // timer pausado
   plannedMs: number; // total planejado da rodada atual (inclui +1:00)
-  swStartedAt: number | null; // cronômetro rodando
-  swAccMs: number; // cronômetro acumulado
+  swStartedAt: number | null; // cronÃ´metro rodando
+  swAccMs: number; // cronÃ´metro acumulado
   sessionStartedAt: number | null;
   cycles: number;
   subject: string;
   subjectManual: boolean;
+  activeTaskId: string | null;
   currentCalendarEventId: string | null;
   subjects: string[];
   settings: Settings;
@@ -91,6 +98,7 @@ interface State {
   getRemaining: (now?: number) => number;
   getElapsed: (now?: number) => number;
   setSubject: (s: string, manual?: boolean) => void;
+  focusOnTask: (taskId: string) => void;
   addSubject: (s: string) => void;
   deleteSubject: (s: string) => void;
   updateSettings: (p: Partial<Settings>) => void;
@@ -102,8 +110,13 @@ interface State {
   deleteTask: (id: string) => void;
   addKanbanTask: (title: string, listId: string, status?: KanbanTaskExtras["status"]) => void;
   updateKanbanTask: (id: string, payload: Partial<Task & KanbanTaskExtras>) => void;
+  moveKanbanTask: (id: string, status: KanbanTaskExtras["status"], overId?: string | null) => void;
+  archiveKanbanTasks: (listId: string) => void;
+  setTagColor: (tag: string, colorIndex: number) => void;
   addTaskList: (name: string) => void;
   deleteTaskList: (id: string) => void;
+  addKanbanPropDef: (listId: string, def: import("@/lib/types").PropDef) => void;
+  deleteKanbanPropDef: (listId: string, propId: string) => void;
   addCalendarEntry: (title: string, type: string, date: string) => void;
   deleteCalendarEntry: (id: string) => void;
   addCalendarTag: (label: string, color: string) => void;
@@ -120,10 +133,10 @@ const phaseMs = (s: Settings, p: Phase) =>
 export const useStore = create<State>()(
   persist(
     (set, get) => {
-      /** Registra sessão: salva local (synced:false) e tenta enviar. */
+      /** Registra sessÃ£o: salva local (synced:false) e tenta enviar. */
       const recordSession = (startedAt: number, durationSec: number) => {
         if (durationSec < 60) return;
-        const { subject, userId, settings } = get();
+        const { subject, userId, activeTaskId } = get();
         const session: Session = {
           id: uid(),
           subject: subject || "Geral",
@@ -133,15 +146,24 @@ export const useStore = create<State>()(
           user_id: userId ?? undefined,
         };
         set((s) => ({ sessions: [...s.sessions, session] }));
+
+        if (activeTaskId) {
+          const currentExtras = get().settings.kanban?.taskExtras[activeTaskId];
+          if (currentExtras) {
+            get().updateKanbanTask(activeTaskId, {
+              focusSec: (currentExtras.focusSec ?? 0) + Math.round(durationSec)
+            });
+          }
+        }
         void get().flushPending();
         if (settings.autoSaveCalendar && get().googleConnected && userId) {
           createStudyEvent(session.subject, startedAt, session.duration_sec).catch(
             (e) => {
               if (e instanceof CalendarAuthError) {
                 set({ googleConnected: false });
-                toast.warning("Sessão do Google expirou. Reconecte o calendário nas configurações.");
+                toast.warning("SessÃ£o do Google expirou. Reconecte o calendÃ¡rio nas configuraÃ§Ãµes.");
               } else {
-                toast.warning("Não foi possível salvar no Google Calendar agora.");
+                toast.warning("NÃ£o foi possÃ­vel salvar no Google Calendar agora.");
               }
             }
           );
@@ -162,6 +184,7 @@ export const useStore = create<State>()(
         cycles: 0,
         subject: "Geral",
         subjectManual: false,
+        activeTaskId: null,
         currentCalendarEventId: null,
         subjects: ["Geral", "HTML", "CSS", "JavaScript"],
         settings: DEFAULT_SETTINGS,
@@ -239,7 +262,7 @@ export const useStore = create<State>()(
         reset: () => {
           const s = get();
           const now = Date.now();
-          // Progresso parcial de foco também conta (>= 1 min)
+          // Progresso parcial de foco tambÃ©m conta (>= 1 min)
           if (s.sessionStartedAt && s.status !== "idle") {
             if (s.mode === "stopwatch") recordSession(s.sessionStartedAt, s.getElapsed(now) / 1000);
             else if (s.phase === "focus")
@@ -286,7 +309,7 @@ export const useStore = create<State>()(
           });
           if (finishedFocus) recordSession(started, planned / 1000);
           
-          const msg = finishedFocus ? "Foco concluído! Hora de uma pausa." : "Pausa terminou. Vamos focar?";
+          const msg = finishedFocus ? "Foco concluÃ­do! Hora de uma pausa." : "Pausa terminou. Vamos focar?";
           
           if (s.settings.soundEnabled) playAlarm(s.settings.alarm, s.settings.volume);
           toast.success(msg);
@@ -298,7 +321,18 @@ export const useStore = create<State>()(
           if (typeof document !== "undefined") document.title = "foco.";
         },
 
-        setSubject: (subject, manual = true) => set({ subject, subjectManual: manual }),
+        setSubject: (subject, manual = true) => set({ subject, subjectManual: manual, activeTaskId: null }),
+        focusOnTask: (taskId) => {
+          const s = get();
+          const task = s.tasks.find((t) => t.id === taskId);
+          if (!task) return;
+          set({
+            tab: "timer",
+            activeTaskId: taskId,
+            subject: task.title,
+            subjectManual: true,
+          });
+        },
         addSubject: (name) => {
           const n = name.trim();
           if (!n) return;
@@ -376,7 +410,7 @@ export const useStore = create<State>()(
           if (!title.trim()) return;
           const id = uid();
           set((s) => {
-            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
             return {
               tasks: [
                 { id, title: title.trim(), subject: null, done: status === "done", created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined },
@@ -385,55 +419,137 @@ export const useStore = create<State>()(
               settings: {
                 ...s.settings,
                 kanban: {
-                  ...currentKanban,
+                  ...kb,
                   taskExtras: {
-                    ...currentKanban.taskExtras,
-                    [id]: { status, listId, subtasks: [], tags: [], dueDate: null }
-                  }
-                }
+                    ...kb.taskExtras,
+                    [id]: { ...DEFAULT_EXTRAS, status, listId, order: nextOrder(kb) },
+                  },
+                },
               },
-              settingsSynced: false
-            }
+              settingsSynced: false,
+            };
           });
           void get().flushPending();
         },
         updateKanbanTask: (id, payload) => {
           set((s) => {
-            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
-            const currentExtras = currentKanban.taskExtras[id] ?? { status: "todo", listId: "default", subtasks: [], tags: [], dueDate: null };
-            
-            const newTasks = s.tasks.map((t) => {
-              if (t.id === id) {
-                return {
-                  ...t,
-                  title: payload.title !== undefined ? payload.title : t.title,
-                  done: payload.status ? payload.status === "done" : t.done,
-                  synced: false
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const cur = { ...DEFAULT_EXTRAS, ...(kb.taskExtras[id] ?? {}) };
+            const extras: KanbanTaskExtras = { ...cur };
+            for (const k of EXTRA_KEYS) {
+              if (payload[k] !== undefined) (extras as unknown as Record<string, unknown>)[k] = payload[k];
+            }
+            const oldDone = cur.status === "done";
+            const newDone = extras.status === "done";
+
+            const newTasks = s.tasks.map((t) =>
+              t.id === id
+                ? {
+                    ...t,
+                    title: payload.title !== undefined ? payload.title : t.title,
+                    done: newDone,
+                    synced: false,
+                  }
+                : t
+            );
+
+            const newExtras = { ...kb.taskExtras, [id]: extras };
+
+            if (!oldDone && newDone && cur.recurrence && cur.recurrence !== "none") {
+              const baseT = newTasks.find(t => t.id === id);
+              if (baseT) {
+                const newId = uid();
+                newTasks.unshift({
+                  id: newId, title: baseT.title, subject: null, done: false, created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined
+                });
+                newExtras[newId] = {
+                  ...cur,
+                  status: "todo",
+                  subtasks: cur.subtasks.map(st => ({ ...st, done: false })),
+                  dueDate: getNextRecurrenceDate(cur.dueDate, cur.recurrence) ?? cur.dueDate,
+                  order: nextOrder({ lists: kb.lists, taskExtras: newExtras })
                 };
               }
-              return t;
-            });
+            }
 
             return {
               tasks: newTasks,
-              settings: {
-                ...s.settings,
-                kanban: {
-                  ...currentKanban,
-                  taskExtras: {
-                    ...currentKanban.taskExtras,
-                    [id]: {
-                      ...currentExtras,
-                      status: payload.status !== undefined ? payload.status : currentExtras.status,
-                      listId: payload.listId !== undefined ? payload.listId : currentExtras.listId,
-                      subtasks: payload.subtasks !== undefined ? payload.subtasks : currentExtras.subtasks,
-                      tags: payload.tags !== undefined ? payload.tags : currentExtras.tags,
-                      dueDate: payload.dueDate !== undefined ? payload.dueDate : currentExtras.dueDate,
-                    }
-                  }
-                }
-              },
-              settingsSynced: false
+              settings: { ...s.settings, kanban: { ...kb, taskExtras: newExtras } },
+              settingsSynced: false,
+            };
+          });
+          void get().flushPending();
+        },
+        moveKanbanTask: (id, status, overId) => {
+          set((s) => {
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const moving = kb.taskExtras[id];
+            if (!moving) return {};
+            const colIds = sortByOrder(
+              s.tasks
+                .filter((t) => !t.deleted_at)
+                .map((t) => ({ ...toFull(t, kb) }))
+                .filter((t) => t.listId === moving.listId && t.status === status && !t.archived)
+            ).map((t) => t.id);
+            const newIds = placeInColumn(colIds, id, overId ?? null);
+            const extras = { ...kb.taskExtras };
+            newIds.forEach((tid, i) => {
+              extras[tid] = { ...DEFAULT_EXTRAS, ...extras[tid], order: i };
+            });
+            extras[id] = { ...extras[id], status };
+
+            const newTasks = s.tasks.map((t) => (t.id === id ? { ...t, done: status === "done", synced: false } : t));
+
+            if (moving.status !== "done" && status === "done" && moving.recurrence && moving.recurrence !== "none") {
+              const baseT = newTasks.find(t => t.id === id);
+              if (baseT) {
+                const newId = uid();
+                newTasks.unshift({
+                  id: newId, title: baseT.title, subject: null, done: false, created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined
+                });
+                extras[newId] = {
+                  ...moving,
+                  status: "todo",
+                  subtasks: moving.subtasks.map(st => ({ ...st, done: false })),
+                  dueDate: getNextRecurrenceDate(moving.dueDate, moving.recurrence) ?? moving.dueDate,
+                  order: nextOrder({ lists: kb.lists, taskExtras: extras })
+                };
+              }
+            }
+
+            return {
+              tasks: newTasks,
+              settings: { ...s.settings, kanban: { ...kb, taskExtras: extras } },
+              settingsSynced: false,
+            };
+          });
+          void get().flushPending();
+        },
+        archiveKanbanTasks: (listId) => {
+          set((s) => {
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const extras = { ...kb.taskExtras };
+            let changed = false;
+            for (const [id, ex] of Object.entries(extras)) {
+              if (ex.listId === listId && ex.status === "done" && !ex.archived) {
+                extras[id] = { ...ex, archived: true };
+                changed = true;
+              }
+            }
+            if (!changed) return {};
+            return {
+              settings: { ...s.settings, kanban: { ...kb, taskExtras: extras } },
+              settingsSynced: false,
+            };
+          });
+          void get().flushPending();
+        },
+        setTagColor: (tag, colorIndex) => {
+          set((s) => {
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            return {
+              settings: { ...s.settings, kanban: { ...kb, tagColors: { ...(kb.tagColors ?? {}), [tag]: colorIndex } } },
+              settingsSynced: false,
             };
           });
           void get().flushPending();
@@ -441,33 +557,55 @@ export const useStore = create<State>()(
         addTaskList: (name) => {
           if (!name.trim()) return;
           set((s) => {
-            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
             return {
-              settings: {
-                ...s.settings,
-                kanban: {
-                  ...currentKanban,
-                  lists: [...currentKanban.lists, { id: uid(), name: name.trim() }]
-                }
-              },
-              settingsSynced: false
-            }
+              settings: { ...s.settings, kanban: { ...kb, lists: [...kb.lists, { id: uid(), name: name.trim() }] } },
+              settingsSynced: false,
+            };
           });
           void get().flushPending();
         },
         deleteTaskList: (id) => {
+          if (id === "default") return;
           set((s) => {
-            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const doomed = new Set(Object.entries(kb.taskExtras).filter(([, e]) => e.listId === id).map(([k]) => k));
+            const now = new Date().toISOString();
+            return {
+              tasks: s.tasks.map((t) => (doomed.has(t.id) ? { ...t, deleted_at: now, synced: false } : t)),
+              settings: { ...s.settings, kanban: { ...kb, lists: kb.lists.filter((l) => l.id !== id) } },
+              settingsSynced: false,
+            };
+          });
+          void get().flushPending();
+        },
+        addKanbanPropDef: (listId, def) => {
+          set((s) => {
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const defs = kb.propDefs ?? {};
+            const listDefs = defs[listId] ?? [];
             return {
               settings: {
                 ...s.settings,
-                kanban: {
-                  ...currentKanban,
-                  lists: currentKanban.lists.filter(l => l.id !== id)
-                }
+                kanban: { ...kb, propDefs: { ...defs, [listId]: [...listDefs, def] } },
               },
-              settingsSynced: false
-            }
+              settingsSynced: false,
+            };
+          });
+          void get().flushPending();
+        },
+        deleteKanbanPropDef: (listId, propId) => {
+          set((s) => {
+            const kb = s.settings.kanban ?? EMPTY_KANBAN;
+            const defs = kb.propDefs ?? {};
+            const listDefs = defs[listId] ?? [];
+            return {
+              settings: {
+                ...s.settings,
+                kanban: { ...kb, propDefs: { ...defs, [listId]: listDefs.filter((d) => d.id !== propId) } },
+              },
+              settingsSynced: false,
+            };
           });
           void get().flushPending();
         },
@@ -501,12 +639,12 @@ export const useStore = create<State>()(
           set((s) => ({
             userId,
             userEmail,
-            googleConnected: userId ? true : false, // Assumimos true otimisticamente se o usuário estiver logado
+            googleConnected: userId ? true : false, // Assumimos true otimisticamente se o usuÃ¡rio estiver logado
             calendarEvents: userId ? s.calendarEvents : [],
           })),
 
         /**
-         * Anti-bug #6: toda chamada ao Calendar é try/catch. Falhou? Toast discreto
+         * Anti-bug #6: toda chamada ao Calendar Ã© try/catch. Falhou? Toast discreto
          * e o timer continua em modo manual.
          */
         refreshCalendar: async () => {
@@ -518,7 +656,7 @@ export const useStore = create<State>()(
             const { currentCalendarEventId, subjectManual, status } = get();
 
             if (cur) {
-              // Se começou um evento NOVO na agenda, cancelamos a escolha manual e assumimos ele
+              // Se comeÃ§ou um evento NOVO na agenda, cancelamos a escolha manual e assumimos ele
               if (cur.id !== currentCalendarEventId) {
                 set((s) => ({
                   subject: cur.summary,
@@ -529,7 +667,7 @@ export const useStore = create<State>()(
                 }));
                 void get().flushPending();
               } else if (!subjectManual && status === "idle") {
-                // Sincronização normal caso não tenha override manual
+                // SincronizaÃ§Ã£o normal caso nÃ£o tenha override manual
                 set((s) => ({
                   subject: cur.summary,
                   subjects: s.subjects.includes(cur.summary) ? s.subjects : [...s.subjects, cur.summary],
@@ -544,9 +682,9 @@ export const useStore = create<State>()(
           } catch (e) {
             if (e instanceof CalendarAuthError) {
               set({ googleConnected: false, calendarEvents: [] });
-              toast.warning("Sessão do Google expirou. Reconecte nas configurações.", { id: "cal" });
+              toast.warning("SessÃ£o do Google expirou. Reconecte nas configuraÃ§Ãµes.", { id: "cal" });
             } else {
-              toast.warning("Google Calendar indisponível. Usando modo manual.", { id: "cal" });
+              toast.warning("Google Calendar indisponÃ­vel. Usando modo manual.", { id: "cal" });
             }
           }
         },
@@ -562,7 +700,7 @@ export const useStore = create<State>()(
             items: T[],
             stateKey: "sessions" | "notes" | "tasks" | "calendarEntries"
           ) => {
-            // Apenas processa os itens que não têm dono (retrocompatibilidade) ou que são do usuário atual
+            // Apenas processa os itens que nÃ£o tÃªm dono (retrocompatibilidade) ou que sÃ£o do usuÃ¡rio atual
             const pending = items.filter(
               (x) => x.synced === false && (!x.user_id || x.user_id === userId)
             );
@@ -632,7 +770,10 @@ export const useStore = create<State>()(
                 return [...(remote ?? []).filter((x) => !pIds.has(x.id)).map((x) => ({ ...x, synced: true })), ...pending];
               };
               
-              const newSettings = d.data && s.settingsSynced ? (d.data.settings as Settings) : s.settings;
+              const remoteSettings = d.data && s.settingsSynced ? (d.data.settings as Settings) : null;
+              const newSettings = remoteSettings
+                ? { ...remoteSettings, kanban: remoteSettings.kanban ?? s.settings.kanban }
+                : s.settings;
               const newSubjects = d.data && s.settingsSynced ? (d.data.subjects as string[]) : s.subjects;
               
               return {
@@ -646,7 +787,7 @@ export const useStore = create<State>()(
               };
             });
           } catch {
-            toast.warning("Sem conexão com o servidor. Mostrando dados locais.", { id: "remote" });
+            toast.warning("Sem conexÃ£o com o servidor. Mostrando dados locais.", { id: "remote" });
           }
         },
       };
