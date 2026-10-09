@@ -14,7 +14,7 @@ import CalendarPanel from "@/components/CalendarPanel";
 const TABS: { id: TabId; label: string }[] = [
   { id: "timer", label: "Timer" },
   { id: "notes", label: "Anotações" },
-  { id: "reminders", label: "Lembretes" },
+  { id: "tasks", label: "Tarefas" },
   { id: "calendar", label: "Calendário" },
   { id: "progress", label: "Progresso" },
 ];
@@ -63,7 +63,7 @@ export default function Home() {
       <main className="flex-1 px-4 py-8 sm:px-5 sm:py-14">
         {tab === "timer" && <PomodoroTimer />}
         {tab === "notes" && <NotesPanel />}
-        {tab === "reminders" && <TasksPanel />}
+        {tab === "tasks" && <TasksPanel />}
         {tab === "progress" && <ProgressChart />}
         {tab === "calendar" && <CalendarPanel />}
       </main>

@@ -1,7 +1,7 @@
 export type Phase = "focus" | "short" | "long";
 export type TimerMode = "timer" | "stopwatch";
 export type Status = "idle" | "running" | "paused";
-export type TabId = "timer" | "notes" | "reminders" | "progress" | "calendar";
+export type TabId = "timer" | "notes" | "tasks" | "progress" | "calendar";
 export type AlarmSound = "bell" | "digital" | "beep";
 
 export interface Session {
@@ -52,6 +52,30 @@ export interface CalendarEntry {
   user_id?: string;
 }
 
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
+export interface KanbanTaskExtras {
+  status: "todo" | "in_progress" | "done";
+  listId: string; // The list it belongs to
+  subtasks: Subtask[];
+  tags: string[];
+  dueDate: string | null;
+}
+
+export interface TaskList {
+  id: string;
+  name: string;
+}
+
+export interface KanbanData {
+  lists: TaskList[];
+  taskExtras: Record<string, KanbanTaskExtras>;
+}
+
 export interface Settings {
   soundEnabled: boolean;
   volume: number; // 0..1
@@ -62,6 +86,7 @@ export interface Settings {
   autoSaveCalendar: boolean;
   notificationsEnabled: boolean;
   dailyGoalMin: number;
+  kanban?: KanbanData; // Optional para retrocompatibilidade
 }
 
 export interface CalendarEvent {

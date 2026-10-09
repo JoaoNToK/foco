@@ -13,6 +13,7 @@ import type {
   TabId,
   Task,
   TimerMode,
+  KanbanTaskExtras,
 } from "@/lib/types";
 import { playAlarm } from "@/lib/audio";
 import { supabase } from "@/lib/supabase";
@@ -41,6 +42,10 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSaveCalendar: false,
   notificationsEnabled: false,
   dailyGoalMin: 120,
+  kanban: {
+    lists: [{ id: "default", name: "Geral" }],
+    taskExtras: {},
+  },
 };
 
 interface State {
@@ -95,6 +100,10 @@ interface State {
   addTask: (title: string, subject: string | null) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
+  addKanbanTask: (title: string, listId: string, status?: KanbanTaskExtras["status"]) => void;
+  updateKanbanTask: (id: string, payload: Partial<Task & KanbanTaskExtras>) => void;
+  addTaskList: (name: string) => void;
+  deleteTaskList: (id: string) => void;
   addCalendarEntry: (title: string, type: string, date: string) => void;
   deleteCalendarEntry: (id: string) => void;
   addCalendarTag: (label: string, color: string) => void;
@@ -361,6 +370,105 @@ export const useStore = create<State>()(
           set((s) => ({
             tasks: s.tasks.map((t) => (t.id === id ? { ...t, deleted_at: new Date().toISOString(), synced: false } : t)),
           }));
+          void get().flushPending();
+        },
+        addKanbanTask: (title, listId, status = "todo") => {
+          if (!title.trim()) return;
+          const id = uid();
+          set((s) => {
+            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            return {
+              tasks: [
+                { id, title: title.trim(), subject: null, done: status === "done", created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined },
+                ...s.tasks,
+              ],
+              settings: {
+                ...s.settings,
+                kanban: {
+                  ...currentKanban,
+                  taskExtras: {
+                    ...currentKanban.taskExtras,
+                    [id]: { status, listId, subtasks: [], tags: [], dueDate: null }
+                  }
+                }
+              },
+              settingsSynced: false
+            }
+          });
+          void get().flushPending();
+        },
+        updateKanbanTask: (id, payload) => {
+          set((s) => {
+            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            const currentExtras = currentKanban.taskExtras[id] ?? { status: "todo", listId: "default", subtasks: [], tags: [], dueDate: null };
+            
+            const newTasks = s.tasks.map((t) => {
+              if (t.id === id) {
+                return {
+                  ...t,
+                  title: payload.title !== undefined ? payload.title : t.title,
+                  done: payload.status ? payload.status === "done" : t.done,
+                  synced: false
+                };
+              }
+              return t;
+            });
+
+            return {
+              tasks: newTasks,
+              settings: {
+                ...s.settings,
+                kanban: {
+                  ...currentKanban,
+                  taskExtras: {
+                    ...currentKanban.taskExtras,
+                    [id]: {
+                      ...currentExtras,
+                      status: payload.status !== undefined ? payload.status : currentExtras.status,
+                      listId: payload.listId !== undefined ? payload.listId : currentExtras.listId,
+                      subtasks: payload.subtasks !== undefined ? payload.subtasks : currentExtras.subtasks,
+                      tags: payload.tags !== undefined ? payload.tags : currentExtras.tags,
+                      dueDate: payload.dueDate !== undefined ? payload.dueDate : currentExtras.dueDate,
+                    }
+                  }
+                }
+              },
+              settingsSynced: false
+            };
+          });
+          void get().flushPending();
+        },
+        addTaskList: (name) => {
+          if (!name.trim()) return;
+          set((s) => {
+            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            return {
+              settings: {
+                ...s.settings,
+                kanban: {
+                  ...currentKanban,
+                  lists: [...currentKanban.lists, { id: uid(), name: name.trim() }]
+                }
+              },
+              settingsSynced: false
+            }
+          });
+          void get().flushPending();
+        },
+        deleteTaskList: (id) => {
+          set((s) => {
+            const currentKanban = s.settings.kanban ?? { lists: [{ id: "default", name: "Geral" }], taskExtras: {} };
+            return {
+              settings: {
+                ...s.settings,
+                kanban: {
+                  ...currentKanban,
+                  lists: currentKanban.lists.filter(l => l.id !== id)
+                }
+              },
+              settingsSynced: false
+            }
+          });
           void get().flushPending();
         },
         addCalendarEntry: (title, type, date) => {
