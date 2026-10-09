@@ -11,6 +11,7 @@ export interface Session {
   started_at: string;
   duration_sec: number;
   synced: boolean;
+  deleted_at?: string | null;
 }
 
 export interface Note {
@@ -18,6 +19,7 @@ export interface Note {
   subject: string | null;
   content: string;
   created_at: string;
+  deleted_at?: string | null;
   synced?: boolean;
 }
 
@@ -27,6 +29,10 @@ export interface Task {
   subject: string | null;
   done: boolean;
   created_at: string;
+  deleted_at?: string | null;
+  synced?: boolean;
+}
+
 export interface CalendarTag {
   id: string;
   label: string;

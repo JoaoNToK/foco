@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { X } from "lucide-react";
@@ -38,6 +38,10 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const update = useStore((s) => s.updateSettings);
   const userEmail = useStore((s) => s.userEmail);
   const providerToken = useStore((s) => s.providerToken);
+  const subjects = useStore((s) => s.subjects);
+  const addSubject = useStore((s) => s.addSubject);
+  const deleteSubject = useStore((s) => s.deleteSubject);
+  const [newSubject, setNewSubject] = useState("");
   // false no servidor/hidratação, true no cliente (sem setState em effect)
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -147,6 +151,42 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               </button>
             </div>
           </div>
+        </Section>
+
+        <Section title="Matérias">
+          <div className="mb-3 flex flex-wrap gap-2">
+            {subjects.map((sub) => (
+              <span key={sub} className="flex items-center gap-1 rounded bg-bg px-2 py-1 text-xs border border-line">
+                {sub}
+                {sub !== "Geral" && (
+                  <button onClick={() => deleteSubject(sub)} aria-label={`Excluir ${sub}`} className="text-muted hover:text-red-500">
+                    <X size={12} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newSubject.trim()) {
+                addSubject(newSubject);
+                setNewSubject("");
+              }
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="text"
+              value={newSubject}
+              onChange={(e) => setNewSubject(e.target.value)}
+              placeholder="Nova matéria..."
+              className="flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <button type="submit" className="rounded-lg bg-surface2 px-3 py-1.5 text-sm transition hover:bg-line border border-line">
+              Adicionar
+            </button>
+          </form>
         </Section>
 
         <Section title="Tempos e Metas (min)">

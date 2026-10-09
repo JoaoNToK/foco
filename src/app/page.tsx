@@ -28,7 +28,8 @@ export default function Home() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur">
         <nav className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-5 sm:py-4" aria-label="Principal">
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <img src="/icon.png" alt="Logo" className="h-6 w-auto" />
             foco<span className="text-accent">.</span>
           </h1>
           <ul className="-mx-1 flex flex-wrap items-center justify-center gap-0.5 text-[13px] sm:mx-0 sm:justify-end sm:gap-2 sm:text-sm">

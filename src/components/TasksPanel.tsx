@@ -6,7 +6,8 @@ import { useStore } from "@/store/useStore";
 import SubjectPicker from "./SubjectPicker";
 
 export default function TasksPanel() {
-  const tasks = useStore((s) => s.tasks);
+  const allTasks = useStore((s) => s.tasks);
+  const tasks = allTasks.filter((t) => !t.deleted_at);
   const subject = useStore((s) => s.subject);
   const addTask = useStore((s) => s.addTask);
   const toggleTask = useStore((s) => s.toggleTask);

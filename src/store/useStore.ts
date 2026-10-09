@@ -85,6 +85,7 @@ interface State {
   getElapsed: (now?: number) => number;
   setSubject: (s: string, manual?: boolean) => void;
   addSubject: (s: string) => void;
+  deleteSubject: (s: string) => void;
   updateSettings: (p: Partial<Settings>) => void;
 
   addNote: (content: string, subject: string | null) => void;
@@ -291,6 +292,15 @@ export const useStore = create<State>()(
             subjectManual: true,
           }));
         },
+        deleteSubject: (name) => {
+          set((s) => {
+            const newSubjects = s.subjects.filter((sub) => sub !== name);
+            return {
+              subjects: newSubjects,
+              subject: s.subject === name ? "Geral" : s.subject,
+            };
+          });
+        },
 
         updateSettings: (p) => {
           set((s) => {
@@ -313,8 +323,10 @@ export const useStore = create<State>()(
           void get().flushPending();
         },
         deleteNote: (id) => {
-          set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
-          if (supabase && get().userId) void supabase.from("notes").delete().eq("id", id).then(() => {});
+          set((s) => ({
+            notes: s.notes.map((n) => (n.id === id ? { ...n, deleted_at: new Date().toISOString(), synced: false } : n)),
+          }));
+          void get().flushPending();
         },
         addTask: (title, subject) => {
           if (!title.trim()) return;
@@ -333,8 +345,10 @@ export const useStore = create<State>()(
           void get().flushPending();
         },
         deleteTask: (id) => {
-          set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
-          if (supabase && get().userId) void supabase.from("tasks").delete().eq("id", id).then(() => {});
+          set((s) => ({
+            tasks: s.tasks.map((t) => (t.id === id ? { ...t, deleted_at: new Date().toISOString(), synced: false } : t)),
+          }));
+          void get().flushPending();
         },
         addCalendarEntry: (title, type, date) => {
           if (!title.trim()) return;
@@ -442,9 +456,9 @@ export const useStore = create<State>()(
           try {
             await get().flushPending();
             const [a, b, c] = await Promise.all([
-              supabase.from("study_sessions").select("id,subject,started_at,duration_sec"),
-              supabase.from("notes").select("id,subject,content,created_at"),
-              supabase.from("tasks").select("id,title,subject,done,created_at"),
+              supabase.from("study_sessions").select("id,subject,started_at,duration_sec,deleted_at"),
+              supabase.from("notes").select("id,subject,content,created_at,deleted_at"),
+              supabase.from("tasks").select("id,title,subject,done,created_at,deleted_at"),
             ]);
             set((s) => {
               const merge = <T extends { id: string; synced?: boolean }>(local: T[], remote: T[] | null) => {

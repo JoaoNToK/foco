@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, ChevronDown, Pause, Play, RotateCcw } from "lucide-react";
+import { CalendarClock, ChevronDown, Maximize, Minimize, Pause, Play, RotateCcw } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { unlockAudio } from "@/lib/audio";
 import { currentEvent } from "@/lib/calendar";
@@ -40,6 +40,23 @@ export default function PomodoroTimer() {
 
   const [now, setNow] = useState(0);
   const [openAdjust, setOpenAdjust] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!isFullscreen) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+      setIsFullscreen(false);
+    }
+  };
 
   // Re-render + checagem de término. O tempo vem de timestamps (Date.now()),
   // então um setInterval "estrangulado" pelo navegador não causa atraso.
@@ -105,6 +122,75 @@ export default function PomodoroTimer() {
   };
 
   const phaseLabel = PHASES.find((p) => p.id === phase)?.label;
+
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-12 bg-bg p-6">
+        <button
+          onClick={toggleFullscreen}
+          className="absolute right-6 top-6 rounded-lg p-2 text-muted transition hover:bg-surface2 hover:text-fg"
+          aria-label="Sair da tela cheia"
+        >
+          <Minimize size={24} />
+        </button>
+
+        <div className="relative mx-auto flex aspect-square w-[min(90vw,500px)] items-center justify-center [container-type:inline-size]">
+          <svg viewBox="0 0 340 340" className="absolute inset-0 h-full w-full -rotate-90">
+            <circle cx="170" cy="170" r={R} fill="none" stroke="var(--line)" strokeWidth="3" />
+            <circle
+              cx="170"
+              cy="170"
+              r={R}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray={C}
+              strokeDashoffset={dash}
+              style={{ transition: status === "running" ? "stroke-dashoffset 0.3s linear" : "stroke-dashoffset 0.5s ease" }}
+            />
+          </svg>
+          <div className="z-10 flex flex-col items-center text-center">
+            <span
+              className={`tabular whitespace-nowrap font-light leading-none tracking-tight ${
+                hasHours ? "text-[15cqw]" : "text-[22cqw]"
+              } ${status === "paused" ? "pulse-soft" : ""}`}
+            >
+              {display}
+            </span>
+            <span className="mt-2 text-sm uppercase tracking-[0.2em] text-muted">
+              {isTimer ? phaseLabel : "progressivo"}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {status === "running" ? (
+            <button
+              onClick={() => store().pause()}
+              className="flex items-center gap-3 rounded-full border border-accent px-10 py-4 text-lg font-medium text-accent transition hover:bg-accent/10"
+            >
+              <Pause size={24} /> Pausar
+            </button>
+          ) : (
+            <button
+              onClick={onStart}
+              className="flex items-center gap-3 rounded-full bg-accent px-10 py-4 text-lg font-medium text-accent-fg shadow-lg shadow-accent/20 transition hover:scale-[1.03] hover:brightness-110 active:scale-95"
+            >
+              <Play size={24} fill="currentColor" /> {status === "paused" ? "Continuar" : "Iniciar"}
+            </button>
+          )}
+          <button
+            onClick={() => store().reset()}
+            className="flex h-[60px] w-[60px] items-center justify-center rounded-full border border-line text-muted transition hover:border-fg hover:text-fg"
+            aria-label="Reiniciar"
+          >
+            <RotateCcw size={20} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <section className="fade-up mx-auto flex w-full max-w-xl flex-col items-center gap-7" aria-label="Timer">
@@ -224,6 +310,13 @@ export default function PomodoroTimer() {
           className="flex items-center gap-2 rounded-full border border-line px-5 py-3 text-sm text-muted transition hover:border-fg hover:text-fg"
         >
           <RotateCcw size={15} /> Reiniciar
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          className="flex items-center justify-center rounded-full border border-line px-4 py-3 text-sm text-muted transition hover:border-fg hover:text-fg"
+          aria-label="Tela cheia"
+        >
+          <Maximize size={15} />
         </button>
       </div>
 
