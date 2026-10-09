@@ -61,6 +61,7 @@ interface State {
   cycles: number;
   subject: string;
   subjectManual: boolean;
+  currentCalendarEventId: string | null;
   subjects: string[];
   settings: Settings;
   sessions: Session[];
@@ -68,11 +69,10 @@ interface State {
   tasks: Task[];
   userId: string | null;
   userEmail: string | null;
-  providerToken: string | null;
+  googleConnected: boolean;
   calendarEvents: CalendarEvent[];
   calendarEntries: CalendarEntry[];
   calendarTags: CalendarTag[];
-  providerRefreshToken: string | null;
   settingsSynced: boolean;
 
   setTab: (t: TabId) => void;
@@ -99,7 +99,7 @@ interface State {
   deleteCalendarEntry: (id: string) => void;
   addCalendarTag: (label: string, color: string) => void;
 
-  setAuth: (userId: string | null, email: string | null, token?: string | null, refreshToken?: string | null) => void;
+  setAuth: (userId: string | null, email: string | null) => void;
   refreshCalendar: () => Promise<void>;
   flushPending: () => Promise<void>;
   loadRemote: () => Promise<void>;
@@ -114,23 +114,26 @@ export const useStore = create<State>()(
       /** Registra sessão: salva local (synced:false) e tenta enviar. */
       const recordSession = (startedAt: number, durationSec: number) => {
         if (durationSec < 60) return;
-        const { subject, userId, providerToken, settings } = get();
+        const { subject, userId, settings } = get();
         const session: Session = {
           id: uid(),
           subject: subject || "Geral",
           started_at: new Date(startedAt).toISOString(),
           duration_sec: Math.round(durationSec),
           synced: false,
+          user_id: userId ?? undefined,
         };
         set((s) => ({ sessions: [...s.sessions, session] }));
         void get().flushPending();
-        if (settings.autoSaveCalendar && providerToken && userId) {
-          createStudyEvent(providerToken, session.subject, startedAt, session.duration_sec).catch(
+        if (settings.autoSaveCalendar && get().googleConnected && userId) {
+          createStudyEvent(session.subject, startedAt, session.duration_sec).catch(
             (e) => {
               if (e instanceof CalendarAuthError) {
-                set({ providerToken: null });
+                set({ googleConnected: false });
                 toast.warning("Sessão do Google expirou. Reconecte o calendário nas configurações.");
-              } else toast.warning("Não foi possível salvar no Google Calendar agora.");
+              } else {
+                toast.warning("Não foi possível salvar no Google Calendar agora.");
+              }
             }
           );
         }
@@ -150,6 +153,7 @@ export const useStore = create<State>()(
         cycles: 0,
         subject: "Geral",
         subjectManual: false,
+        currentCalendarEventId: null,
         subjects: ["Geral", "HTML", "CSS", "JavaScript"],
         settings: DEFAULT_SETTINGS,
         sessions: [],
@@ -157,7 +161,7 @@ export const useStore = create<State>()(
         tasks: [],
         userId: null,
         userEmail: null,
-        providerToken: null,
+        googleConnected: false,
         calendarEvents: [],
         calendarEntries: [],
         calendarTags: [
@@ -165,7 +169,6 @@ export const useStore = create<State>()(
           { id: "assignment", label: "Trabalho", color: "purple" },
           { id: "deadline", label: "Prazo", color: "red" },
         ],
-        providerRefreshToken: null,
         settingsSynced: true,
 
         setTab: (tab) => set({ tab }),
@@ -326,7 +329,7 @@ export const useStore = create<State>()(
           if (!content.trim()) return;
           set((s) => ({
             notes: [
-              { id: uid(), content: content.trim(), subject, created_at: new Date().toISOString(), synced: false },
+              { id: uid(), content: content.trim(), subject, created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined },
               ...s.notes,
             ],
           }));
@@ -342,7 +345,7 @@ export const useStore = create<State>()(
           if (!title.trim()) return;
           set((s) => ({
             tasks: [
-              { id: uid(), title: title.trim(), subject, done: false, created_at: new Date().toISOString(), synced: false },
+              { id: uid(), title: title.trim(), subject, done: false, created_at: new Date().toISOString(), synced: false, user_id: s.userId ?? undefined },
               ...s.tasks,
             ],
           }));
@@ -365,7 +368,7 @@ export const useStore = create<State>()(
           set((s) => ({
             calendarEntries: [
               ...s.calendarEntries,
-              { id: uid(), title: title.trim(), type, date, synced: false },
+              { id: uid(), title: title.trim(), type, date, synced: false, user_id: s.userId ?? undefined },
             ],
           }));
           void get().flushPending();
@@ -386,12 +389,11 @@ export const useStore = create<State>()(
           }));
         },
 
-        setAuth: (userId, userEmail, token, refreshToken) =>
+        setAuth: (userId, userEmail) =>
           set((s) => ({
             userId,
             userEmail,
-            providerToken: userId ? (token ?? s.providerToken) : null,
-            providerRefreshToken: userId ? (refreshToken ?? s.providerRefreshToken) : null,
+            googleConnected: userId ? true : false, // Assumimos true otimisticamente se o usuário estiver logado
             calendarEvents: userId ? s.calendarEvents : [],
           })),
 
@@ -400,96 +402,98 @@ export const useStore = create<State>()(
          * e o timer continua em modo manual.
          */
         refreshCalendar: async () => {
-          const { providerToken, providerRefreshToken } = get();
-          if (!providerToken) return;
+          if (!get().googleConnected) return;
           try {
-            const events = await fetchTodayEvents(providerToken);
+            const events = await fetchTodayEvents();
             set({ calendarEvents: events });
             const cur = currentEvent(events);
-            if (cur && !get().subjectManual && get().status === "idle") {
-              set((s) => ({
-                subject: cur.summary,
-                subjects: s.subjects.includes(cur.summary) ? s.subjects : [...s.subjects, cur.summary],
-                settingsSynced: s.subjects.includes(cur.summary) ? s.settingsSynced : false,
-              }));
-              void get().flushPending();
+            const { currentCalendarEventId, subjectManual, status } = get();
+
+            if (cur) {
+              // Se começou um evento NOVO na agenda, cancelamos a escolha manual e assumimos ele
+              if (cur.id !== currentCalendarEventId) {
+                set((s) => ({
+                  subject: cur.summary,
+                  subjects: s.subjects.includes(cur.summary) ? s.subjects : [...s.subjects, cur.summary],
+                  settingsSynced: s.subjects.includes(cur.summary) ? s.settingsSynced : false,
+                  subjectManual: false,
+                  currentCalendarEventId: cur.id,
+                }));
+                void get().flushPending();
+              } else if (!subjectManual && status === "idle") {
+                // Sincronização normal caso não tenha override manual
+                set((s) => ({
+                  subject: cur.summary,
+                  subjects: s.subjects.includes(cur.summary) ? s.subjects : [...s.subjects, cur.summary],
+                  settingsSynced: s.subjects.includes(cur.summary) ? s.settingsSynced : false,
+                }));
+                void get().flushPending();
+              }
+            } else if (currentCalendarEventId) {
+              // O evento que estava rolando acabou
+              set({ currentCalendarEventId: null });
             }
           } catch (e) {
             if (e instanceof CalendarAuthError) {
-              if (providerRefreshToken) {
-                // Tenta renovar o token automaticamente
-                try {
-                  const res = await fetch("/api/refresh-token", {
-                    method: "POST",
-                    body: JSON.stringify({ refresh_token: providerRefreshToken }),
-                  });
-                  if (!res.ok) throw new Error("Falha ao renovar token");
-                  const { access_token } = await res.json();
-                  set({ providerToken: access_token });
-                  // Refaz a busca
-                  const events = await fetchTodayEvents(access_token);
-                  set({ calendarEvents: events });
-                  return;
-                } catch {
-                  set({ providerToken: null, calendarEvents: [] });
-                  toast.warning("Sessão do Google expirou. Reconecte nas configurações.", { id: "cal" });
-                }
-              } else {
-                set({ providerToken: null, calendarEvents: [] });
-                toast.warning("Acesso ao Google Calendar expirou. Reconecte nas configurações.", { id: "cal" });
-              }
+              set({ googleConnected: false, calendarEvents: [] });
+              toast.warning("Sessão do Google expirou. Reconecte nas configurações.", { id: "cal" });
             } else {
               toast.warning("Google Calendar indisponível. Usando modo manual.", { id: "cal" });
             }
           }
         },
 
-        /**
-         * Anti-bug #5: itens com synced:false ficam no localStorage (persist)
-         * e são reenviados quando a conexão volta (evento 'online' no Providers).
-         */
         flushPending: async () => {
           const { userId } = get();
           if (!supabase || !userId) return;
           if (typeof navigator !== "undefined" && !navigator.onLine) return;
           const s = get();
+
+          const processQueue = async <T extends { id: string; synced?: boolean; deleted_at?: string | null; user_id?: string }>(
+            table: string,
+            items: T[],
+            stateKey: "sessions" | "notes" | "tasks" | "calendarEntries"
+          ) => {
+            // Apenas processa os itens que não têm dono (retrocompatibilidade) ou que são do usuário atual
+            const pending = items.filter(
+              (x) => x.synced === false && (!x.user_id || x.user_id === userId)
+            );
+            if (!pending.length) return;
+
+            const toDelete = pending.filter((x) => x.deleted_at);
+            const toUpsert = pending.filter((x) => !x.deleted_at);
+
+            if (toUpsert.length) {
+              const { error } = await supabase!
+                .from(table)
+                .upsert(toUpsert.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
+              if (error) throw error;
+            }
+
+            if (toDelete.length) {
+              const { error } = await supabase!
+                .from(table)
+                .delete()
+                .in("id", toDelete.map((x) => x.id));
+              if (error) throw error;
+            }
+
+            const upsertedIds = new Set(toUpsert.map((x) => x.id));
+            const deletedIds = new Set(toDelete.map((x) => x.id));
+
+            set((st) => ({
+              [stateKey]: (st[stateKey] as unknown as T[])
+                .filter((x) => !deletedIds.has(x.id))
+                .map((x) => (upsertedIds.has(x.id) ? { ...x, synced: true } : x)),
+            }));
+          };
+
           try {
-            const ps = s.sessions.filter((x) => !x.synced);
-            if (ps.length) {
-              const { error } = await supabase
-                .from("study_sessions")
-                .upsert(ps.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
-              if (error) throw error;
-              const ids = new Set(ps.map((x) => x.id));
-              set((st) => ({ sessions: st.sessions.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
-            }
-            const ns = s.notes.filter((x) => x.synced === false);
-            if (ns.length) {
-              const { error } = await supabase
-                .from("notes")
-                .upsert(ns.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
-              if (error) throw error;
-              const ids = new Set(ns.map((x) => x.id));
-              set((st) => ({ notes: st.notes.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
-            }
-            const ts = s.tasks.filter((x) => x.synced === false);
-            if (ts.length) {
-              const { error } = await supabase
-                .from("tasks")
-                .upsert(ts.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
-              if (error) throw error;
-              const ids = new Set(ts.map((x) => x.id));
-              set((st) => ({ tasks: st.tasks.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
-            }
-            const ce = s.calendarEntries.filter((x) => x.synced === false);
-            if (ce.length) {
-              const { error } = await supabase
-                .from("calendar_entries")
-                .upsert(ce.map((r) => ({ ...omit(r, "synced"), user_id: userId })));
-              if (error) throw error;
-              const ids = new Set(ce.map((x) => x.id));
-              set((st) => ({ calendarEntries: st.calendarEntries.map((x) => (ids.has(x.id) ? { ...x, synced: true } : x)) }));
-            }
+            await processQueue("study_sessions", s.sessions, "sessions");
+            await processQueue("notes", s.notes, "notes");
+            await processQueue("tasks", s.tasks, "tasks");
+            await processQueue("calendar_entries", s.calendarEntries, "calendarEntries");
+
             if (s.settingsSynced === false) {
               const { error } = await supabase
                 .from("user_settings")
@@ -546,7 +550,13 @@ export const useStore = create<State>()(
       skipHydration: true,
       partialize: (s) =>
         Object.fromEntries(
-          Object.entries(s).filter(([k, v]) => k !== "calendarEvents" && typeof v !== "function")
+          Object.entries(s).filter(
+            ([k, v]) =>
+              k !== "calendarEvents" &&
+              k !== "subjectManual" &&
+              k !== "currentCalendarEventId" &&
+              typeof v !== "function"
+          )
         ) as Partial<State>,
     }
   )

@@ -63,7 +63,9 @@ export function aggregate(sessions: Session[], weekOffset: number = 0, today = n
 }
 
 export default function ProgressChart() {
-  const sessions = useStore((s) => s.sessions);
+  const allSessions = useStore((s) => s.sessions);
+  const userId = useStore((s) => s.userId);
+  const sessions = useMemo(() => allSessions.filter((s) => !s.deleted_at && (!s.user_id || s.user_id === userId)), [allSessions, userId]);
   const dailyGoalMin = useStore((s) => s.settings.dailyGoalMin || 120);
   const [weekOffset, setWeekOffset] = useState(0);
   

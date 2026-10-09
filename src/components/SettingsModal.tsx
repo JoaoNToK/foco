@@ -37,7 +37,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const settings = useStore((s) => s.settings);
   const update = useStore((s) => s.updateSettings);
   const userEmail = useStore((s) => s.userEmail);
-  const providerToken = useStore((s) => s.providerToken);
+  const googleConnected = useStore((s) => s.googleConnected);
   const subjects = useStore((s) => s.subjects);
   const addSubject = useStore((s) => s.addSubject);
   const deleteSubject = useStore((s) => s.deleteSubject);
@@ -58,7 +58,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   if (!open) return null;
   const dark = (mounted ? resolvedTheme ?? theme : "dark") === "dark";
-  const connected = !!userEmail && !!providerToken;
+  const connected = !!userEmail && googleConnected;
 
   const connect = async () => {
     try {
@@ -237,7 +237,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             <button
               id="connect-google"
               onClick={connect}
-              disabled={!supabase && false}
               className="w-full rounded-lg bg-accent py-2 text-sm font-medium text-accent-fg hover:brightness-110"
             >
               Conectar Google Calendar

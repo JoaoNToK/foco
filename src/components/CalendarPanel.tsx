@@ -38,7 +38,10 @@ const TAG_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function CalendarPanel() {
-  const { calendarEntries, calendarTags, addCalendarEntry, deleteCalendarEntry, addCalendarTag } = useStore();
+  const store = useStore();
+  const userId = store.userId;
+  const calendarEntries = store.calendarEntries.filter((e) => !e.deleted_at && (!e.user_id || e.user_id === userId));
+  const { calendarTags, addCalendarEntry, deleteCalendarEntry, addCalendarTag } = store;
   
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // "YYYY-MM-DD"

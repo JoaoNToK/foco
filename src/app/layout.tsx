@@ -9,6 +9,16 @@ export const metadata: Metadata = {
   title: "foco. — timer de estudos",
   description:
     "foco. é um timer Pomodoro minimalista com cronômetro, anotações, lembretes, progresso e integração com o Google Calendar.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "foco.",
+  },
+};
+
+export const viewport = {
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

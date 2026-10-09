@@ -17,16 +17,45 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   // Auth Supabase + sincronização
   useEffect(() => {
     if (!ready || !supabase) return;
-    const { setAuth, loadRemote, refreshCalendar } = useStore.getState();
-    supabase.auth.getSession().then(({ data }) => {
-      const s = data.session;
-      setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token, s?.provider_refresh_token);
-      if (s) void loadRemote().then(refreshCalendar);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      useStore.getState().setAuth(s?.user.id ?? null, s?.user.email ?? null, s?.provider_token, s?.provider_refresh_token);
-      if (s) void useStore.getState().loadRemote().then(() => useStore.getState().refreshCalendar());
-    });
+
+    async function handleSession(s: any) {
+      if (!s) {
+        useStore.getState().setAuth(null, null);
+        return;
+      }
+
+      if (s.provider_token || s.provider_refresh_token) {
+        await fetch("/api/auth/store-google-tokens", {
+          method: "POST",
+          body: JSON.stringify({
+            provider_token: s.provider_token,
+            provider_refresh_token: s.provider_refresh_token
+          }),
+        });
+
+        // Remove do localStorage para evitar XSS
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (url) {
+          try {
+            const projectId = url.split("//")[1].split(".")[0];
+            const storageKey = `sb-${projectId}-auth-token`;
+            const stored = localStorage.getItem(storageKey);
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              delete parsed.provider_token;
+              delete parsed.provider_refresh_token;
+              localStorage.setItem(storageKey, JSON.stringify(parsed));
+            }
+          } catch (e) {}
+        }
+      }
+
+      useStore.getState().setAuth(s.user.id, s.user.email);
+      void useStore.getState().loadRemote().then(() => useStore.getState().refreshCalendar());
+    }
+
+    supabase.auth.getSession().then(({ data }) => handleSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => handleSession(s));
     return () => sub.subscription.unsubscribe();
   }, [ready]);
 

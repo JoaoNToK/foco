@@ -7,7 +7,8 @@ import SubjectPicker from "./SubjectPicker";
 
 export default function NotesPanel() {
   const allNotes = useStore((s) => s.notes);
-  const notes = allNotes.filter((n) => !n.deleted_at);
+  const userId = useStore((s) => s.userId);
+  const notes = allNotes.filter((n) => !n.deleted_at && (!n.user_id || n.user_id === userId));
   const subject = useStore((s) => s.subject);
   const addNote = useStore((s) => s.addNote);
   const deleteNote = useStore((s) => s.deleteNote);

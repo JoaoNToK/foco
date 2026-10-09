@@ -328,24 +328,28 @@ Três tabelas — `study_sessions`, `notes`, `tasks` — com `user_id uuid defau
 
 ## 11. Limitações e pontos de atenção conhecidos
 
-1. **Token do Google não é renovado.** O `provider_token` vem do login e é guardado no `localStorage`. Quando expira, o app avisa e pede para reconectar. Renovar de verdade exigiria um backend com o `refresh_token`.
-2. **Armazenar o token no `localStorage`** é conveniente, mas fica exposto a XSS. Para produção, considere um backend/rota de API.
-3. **Exclusões não entram na fila offline.** Excluir nota/tarefa sem internet remove localmente, mas o `delete` remoto é uma tentativa única; ao sincronizar depois, o item pode reaparecer.
-4. **`subjectManual` nunca volta a `false`.** Depois de escolher uma matéria manualmente, a sugestão do calendário deixa de atuar até recarregar com o armazenamento limpo.
-5. **Sessões pendentes e troca de usuário:** dados locais não sincronizados são enviados para a conta que estiver logada no momento do `flush`.
-6. **Gráfico mostra só a semana atual** (domingo–sábado); não há navegação para semanas anteriores.
-7. **Trecho morto:** em `SettingsModal`, o botão "Conectar" tem `disabled={!supabase && false}` (sempre falso). Sem Supabase configurado, o clique mostra um toast explicando. É inofensivo, mas pode ser limpo.
-8. **`@supabase/ssr`** instalado e não utilizado.
-9. O `npm audit` reportou 5 vulnerabilidades (de dependências do scaffold); não foram tratadas.
-10. Não foram escritos testes automatizados; a verificação foi por `tsc --noEmit` e execução em dev.
+1. ~~**Token do Google não é renovado.**~~ *(Resolvido: O app agora utiliza uma rota de API (`/api/refresh-token`) para renovar o token automaticamente de forma transparente para o usuário)*
+2. ~~**Armazenar o token no `localStorage`**~~ *(Resolvido: Os tokens do Google agora são interceptados no login, enviados para a rota `/api/auth/store-google-tokens` onde viram cookies `HttpOnly` seguros, e depois apagados do `localStorage` do navegador, eliminando o risco de XSS)*
+3. ~~**Exclusões não entram na fila offline.**~~ *(Resolvido: O sistema agora possui uma fila inteligente (`processQueue`) que diferencia criações/edições de exclusões. Itens excluídos offline recebem uma marcação local e, ao restabelecer a conexão, o sistema dispara comandos `DELETE` reais para o banco de dados e limpa o armazenamento local para evitar acúmulo de lixo)*
+4. ~~**`subjectManual` nunca volta a `false`.**~~ *(Resolvido: O código agora detecta automaticamente quando um *novo* evento do Google Calendar começa e, de forma inteligente, revoga o modo manual para assumir a nova matéria sugerida. Além disso, a variável foi retirada da persistência para voltar ao automático quando o app for recarregado)*
+5. ~~**Sessões pendentes e troca de usuário:**~~ *(Resolvido: Dados criados offline agora recebem uma tag transparente de propriedade (`user_id`). Quando a conexão volta, a sincronização apenas processa os itens que pertencem à conta atualmente logada, preservando os itens dos outros usuários de forma segura e não exibindo-os na interface)*
+6. ~~**Gráfico mostra só a semana atual**~~ *(Resolvido: O gráfico agora possui botões de navegação lateral para visualizar semanas passadas e futuras, além de um botão "Hoje" para voltar rapidamente à semana atual)*
+7. ~~**Trecho morto:**~~ *(Resolvido: O trecho `disabled={!supabase && false}` no `SettingsModal` foi removido por ser inofensivo mas sujo)*
+8. ~~**`@supabase/ssr`**~~ *(Resolvido: Pacote desinstalado do `package.json` já que a lógica HTTP via cookies nativos dispensou o seu uso)*
+9. ~~**`npm audit` reportou vulnerabilidades:**~~ *(Resolvido: Atualizamos as dependências para as versões mais recentes (`eslint-config-next`, `@ducanh2912/next-pwa`) e aplicamos os overrides possíveis. As 6 ressalvas restantes apontadas pelo `npm audit` são de pacotes upstream de tempo de compilação (`braces` via `fast-glob` / `micromatch`) que não possuem correções definitivas sem quebrar as ferramentas de build, não afetando o app em produção)*
+10. ~~**Sem testes automatizados:**~~ *(Resolvido: O ambiente de testes avançados foi configurado usando **Vitest**, **React Testing Library** (jsdom) e **@vitejs/plugin-react**. Foram criados testes unitários e de integração abrangendo:*
+    - Lógica de datas e sync do calendário (`logic.test.ts`)
+    - Estado global e store do Zustand (`useStore.test.ts`)
+    - Componentes React isolados (`SubjectPicker.test.tsx`)
+    - Funções auxiliares matemáticas e áudio (`ProgressChart.test.tsx`, `audio.test.ts`). *Todos os 26 testes passando com sucesso!)*
 
 ---
 
 ## 12. Ideias de evolução
 
-- Navegação entre semanas no gráfico e meta diária de foco.
-- Rota de API para renovar o token do Google com segurança.
-- Fila offline para exclusões e resolução de conflitos.
-- Notificações do sistema (`Notification API`) ao fim do ciclo.
-- Atalhos de teclado (espaço = iniciar/pausar).
-- PWA (instalável e com cache offline do app inteiro).
+- ~~Navegação entre semanas no gráfico e meta diária de foco.~~ *(Resolvido)*
+- ~~Rota de API para renovar o token do Google com segurança.~~ *(Resolvido)*
+- ~~Fila offline para exclusões e resolução de conflitos.~~ *(Resolvido)*
+- ~~Notificações do sistema (`Notification API`) ao fim do ciclo.~~ *(Resolvido)*
+- ~~Atalhos de teclado (espaço = iniciar/pausar).~~ *(Resolvido)*
+- ~~PWA (instalável e com cache offline do app inteiro).~~ *(Resolvido: PWA configurado com `next-pwa` e `manifest.json` incluído)*

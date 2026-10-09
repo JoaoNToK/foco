@@ -73,33 +73,28 @@ describe("lib/calendar", () => {
 
   it("401/403 → CalendarAuthError; outros erros → Error genérico", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) }));
-    await expect(fetchTodayEvents("t")).rejects.toBeInstanceOf(CalendarAuthError);
+    await expect(fetchTodayEvents()).rejects.toBeInstanceOf(CalendarAuthError);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
-    await expect(fetchTodayEvents("t")).rejects.not.toBeInstanceOf(CalendarAuthError);
+    await expect(fetchTodayEvents()).rejects.not.toBeInstanceOf(CalendarAuthError);
     vi.unstubAllGlobals();
   });
 
-  it("envia Bearer token e intervalo de hoje (00:00–24:00 local)", async () => {
-    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ items: [] }) });
+  it("chama /api/calendar/events", async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ([]) });
     vi.stubGlobal("fetch", f);
-    await fetchTodayEvents("abc");
-    const [url, init] = f.mock.calls[0];
-    expect(init.headers.Authorization).toBe("Bearer abc");
-    const q = new URL(url).searchParams;
-    const a = new Date(q.get("timeMin")!);
-    const b = new Date(q.get("timeMax")!);
-    expect(a.getHours()).toBe(0);
-    expect(b.getTime() - a.getTime()).toBe(86_400_000);
+    await fetchTodayEvents();
+    expect(f).toHaveBeenCalledWith("/api/calendar/events");
     vi.unstubAllGlobals();
   });
 
-  it("createStudyEvent monta início/fim corretamente", async () => {
+  it("createStudyEvent monta body corretamente", async () => {
     const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
     vi.stubGlobal("fetch", f);
-    await createStudyEvent("t", "CSS", Date.UTC(2026, 9, 8, 15), 1500);
+    await createStudyEvent("CSS", Date.UTC(2026, 9, 8, 15), 1500);
     const body = JSON.parse(f.mock.calls[0][1].body);
-    expect(body.summary).toBe("Estudo: CSS");
-    expect(new Date(body.end.dateTime).getTime() - new Date(body.start.dateTime).getTime()).toBe(1_500_000);
+    expect(body.subject).toBe("CSS");
+    expect(body.durationSec).toBe(1500);
+    expect(body.startedAt).toBe(Date.UTC(2026, 9, 8, 15));
     vi.unstubAllGlobals();
   });
 });

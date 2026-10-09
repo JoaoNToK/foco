@@ -12,6 +12,7 @@ export interface Session {
   duration_sec: number;
   synced: boolean;
   deleted_at?: string | null;
+  user_id?: string;
 }
 
 export interface Note {
@@ -21,6 +22,7 @@ export interface Note {
   created_at: string;
   deleted_at?: string | null;
   synced?: boolean;
+  user_id?: string;
 }
 
 export interface Task {
@@ -31,6 +33,7 @@ export interface Task {
   created_at: string;
   deleted_at?: string | null;
   synced?: boolean;
+  user_id?: string;
 }
 
 export interface CalendarTag {
@@ -46,6 +49,7 @@ export interface CalendarEntry {
   date: string; // ISO format or YYYY-MM-DD
   deleted_at?: string | null;
   synced?: boolean;
+  user_id?: string;
 }
 
 export interface Settings {
