@@ -44,6 +44,7 @@ export interface CalendarEntry {
   title: string;
   type: string; // matches CalendarTag.id
   date: string; // ISO format or YYYY-MM-DD
+  deleted_at?: string | null;
   synced?: boolean;
 }
 
