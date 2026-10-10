@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Plus, X, Trash2, Calendar, Tag, CheckSquare, Clock, FileText, Check, Flag, AlignLeft, Repeat, Archive } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import SubjectPicker from "./SubjectPicker";
@@ -197,6 +198,8 @@ function Column({
 }
 
 function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const allTasks = useStore((s) => s.tasks);
   const extras = useStore((s) => s.settings.kanban?.taskExtras[taskId]);
   const updateKanbanTask = useStore((s) => s.updateKanbanTask);
@@ -222,6 +225,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
   const [newPropOptions, setNewPropOptions] = useState("");
 
   if (!base) return null;
+  if (!mounted) return null;
   const x = extras ?? DEFAULT_EXTRAS;
   const doneSub = x.subtasks.filter((s) => s.done).length;
   const pct = x.subtasks.length ? Math.round((doneSub / x.subtasks.length) * 100) : 0;
@@ -259,9 +263,9 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
     patch({ props: { ...(x.props ?? {}), [propId]: val } });
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl">
@@ -287,7 +291,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
 
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-4">
-            <div className="flex w-24 items-center gap-2 text-muted"><Clock size={15} /> Status</div>
+            <div className="flex w-24 shrink-0 items-center gap-2 text-muted"><Clock size={15} /> Status</div>
             <select
               value={x.status}
               onChange={(e) => moveKanbanTask(taskId, e.target.value as Status, null)}
@@ -300,7 +304,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex w-24 items-center gap-2 text-muted"><Flag size={15} /> Prioridade</div>
+            <div className="flex w-24 shrink-0 items-center gap-2 text-muted"><Flag size={15} /> Prioridade</div>
             <select
               aria-label="Prioridade"
               value={x.priority ?? "none"}
@@ -314,7 +318,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex w-24 items-center gap-2 text-muted"><Repeat size={15} /> Repetição</div>
+            <div className="flex w-24 shrink-0 items-center gap-2 text-muted"><Repeat size={15} /> Repetição</div>
             <select
               aria-label="Repetição"
               value={x.recurrence ?? "none"}
@@ -329,7 +333,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
 
 
           <div className="flex items-center gap-4">
-            <div className="flex w-24 items-center gap-2 text-muted"><Calendar size={15} /> Prazo</div>
+            <div className="flex w-24 shrink-0 items-center gap-2 text-muted"><Calendar size={15} /> Prazo</div>
             <input
               type="date"
               value={x.dueDate ?? ""}
@@ -339,7 +343,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
           </div>
 
           <div className="flex items-start gap-4">
-            <div className="mt-1 flex w-24 items-center gap-2 text-muted"><AlignLeft size={15} /> Descrição</div>
+            <div className="mt-1 flex w-24 shrink-0 items-center gap-2 text-muted"><AlignLeft size={15} /> Descrição</div>
             <textarea
               value={x.description ?? ""}
               onChange={(e) => patch({ description: e.target.value })}
@@ -349,7 +353,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
           </div>
 
           <div className="flex items-start gap-4">
-            <div className="mt-1 flex w-24 items-center gap-2 text-muted"><Tag size={15} /> Tags</div>
+            <div className="mt-1 flex w-24 shrink-0 items-center gap-2 text-muted"><Tag size={15} /> Tags</div>
             <div className="flex flex-1 flex-col gap-2">
               <div className="flex flex-wrap items-center gap-1.5">
                 {x.tags.map((t) => (
@@ -412,7 +416,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
             const val = x.props?.[def.id] ?? "";
             return (
               <div key={def.id} className="flex items-center gap-4 group">
-                <div className="flex w-24 items-center gap-2 text-muted">
+                <div className="flex w-24 shrink-0 items-center gap-2 text-muted">
                   <span className="truncate" title={def.name}>{def.name}</span>
                 </div>
                 {def.type === "text" && (
@@ -567,8 +571,8 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
           </div>
         </section>
 
-        <footer className="mt-6 flex items-center justify-between border-t border-line pt-4">
-          <div className="flex items-center gap-3">
+        <footer className="mt-6 flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between border-t border-line pt-4">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => {
                 deleteTask(taskId);
@@ -592,12 +596,12 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
                 focusOnTask(taskId);
                 onClose();
               }}
-              className="flex items-center gap-2 text-sm text-sky-400 hover:brightness-125 ml-2"
+              className="flex items-center gap-2 text-sm text-sky-400 hover:brightness-125 sm:ml-2"
             >
               <Clock size={15} /> Focar
             </button>
             {x.focusSec ? (
-              <span className="text-xs text-muted ml-2">({Math.round(x.focusSec / 60)} min)</span>
+              <span className="text-xs text-muted sm:ml-2">({Math.round(x.focusSec / 60)} min)</span>
             ) : null}
           </div>
           <button
@@ -605,7 +609,7 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
               if (title.trim() && title !== base.title) patch({ title: title.trim() });
               onClose();
             }}
-            className="rounded-lg bg-accent px-5 py-1.5 text-sm font-medium text-accent-fg hover:brightness-110"
+            className="w-full sm:w-auto rounded-lg bg-accent px-5 py-1.5 text-sm font-medium text-accent-fg hover:brightness-110"
           >
             Concluir
           </button>
@@ -613,6 +617,8 @@ function TaskModal({ taskId, onClose }: { taskId: string; onClose: () => void })
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
 
 // Prioriza cartões sob o ponteiro (reordenar); depois a coluna; por fim interseção de retângulos.
