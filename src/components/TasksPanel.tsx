@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Plus, X, Trash2, Calendar, Tag, CheckSquare, Clock, FileText, Check, Flag, AlignLeft, Repeat, Archive } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import SubjectPicker from "./SubjectPicker";
 import {
   DndContext,
   DragOverlay,
@@ -682,7 +683,10 @@ export default function TasksPanel() {
 
   return (
     <section className="fade-up mx-auto w-full max-w-5xl" aria-label="Tarefas">
-      <h2 className="text-3xl font-light">Tarefas</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-light">Tarefas</h2>
+        <SubjectPicker compact />
+      </div>
 
       {/* Listas (estilo Google Tarefas) */}
       <div className="mt-5 flex flex-wrap items-center gap-2">
